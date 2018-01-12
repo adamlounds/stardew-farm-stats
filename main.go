@@ -3,15 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	//	"github.com/firstrow/tcp_server"
-	//	"github.com/go-chi/chi"
-	//	"github.com/go-chi/chi/middleware"
-	"github.com/pressly/lg"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
-	//	"strings"
+	"net/url"
+	"path"
+	"reflect"
+	"regexp"
+	"strconv"
+	"time"
 )
 
 type statistics struct {
@@ -29,40 +30,148 @@ const (
 var serverCtx context.Context
 
 func main() {
-	logger := logrus.New()
-	logger.Formatter = &logrus.JSONFormatter{}
-	lg.RedirectStdlogOutput(logger)
-	lg.DefaultLogger = logger
-	serverCtx = context.Background()
-	serverCtx = lg.WithLoggerContext(serverCtx, logger)
-	lg.Log(serverCtx).Infof("Starting Innocuous server %s", "v1.0")
+	//log.SetOutput(ioutil.Discard)
+	log.SetLevel(log.DebugLevel)
+	log.Infof("Starting Innocuous server %s", "v1.0")
 
-	resp, err := http.Get("https://upload.farm/_mini_recents")
-	body, err := ioutil.ReadAll(resp.Body)
-	defer resp.Body.Close()
+	queue := make(chan string)
+	statsQueue := make(chan svStats)
+
+	go func() {
+		for stats := range statsQueue {
+			log.Infof("processing stats %v", stats)
+		}
+	}()
+
+	go func() {
+		for farmID := range queue {
+			processFarmID(farmID, statsQueue)
+		}
+	}()
+
+	go func() {
+		for {
+			fetchRecents(queue)
+			time.Sleep(30 * time.Second)
+			fetchRecents(queue)
+			time.Sleep(30 * time.Second)
+			break
+		}
+	}()
+
+	select {}
+
+}
+
+func fetchRecents(queue chan string) {
+	body, err := fetchURL("https://upload.farm/_mini_recents")
+	if err != nil {
+		return
+	}
+
+	farmIDs, err := extractFarmIDs(body)
+	if err != nil {
+		return
+	}
+
+	for _, farmID := range farmIDs {
+		queue <- farmID
+	}
+}
+
+func extractFarmIDs(body []byte) ([]string, error) {
 
 	var entries []string
-	err = json.Unmarshal(body, &entries)
+	err := json.Unmarshal(body, &entries)
 	if err != nil {
-		lg.Log(serverCtx).Infof("cannot parse json %s (%v)", body, err)
+		log.Infof("cannot parse json %s (%v)", body, err)
+		return nil, err
 	}
 
 	var farmIDs []string
 	for _, entry := range entries {
 		farmID, err := extractFarmID(entry)
 		if err != nil {
-			lg.Log(serverCtx).Infof("unexpected entry %s", entry)
+			log.Infof("unexpected entry [%s]", entry)
 			continue
 		}
-		lg.Log(serverCtx).Infof("%s -> %s (%v)", entry, farmID, err)
+		log.Infof("%s -> %s (%v)", entry, farmID, err)
 		farmIDs = append(farmIDs, farmID)
 	}
 
-	//farmID, err := extractFarmID("invlid")
-	//lg.Log(serverCtx).Infof("%s -> %s (%v)", first, farmID, err)
+	return farmIDs, nil
+}
 
-	fmt.Println(farmIDs)
+func fetchURL(url string) ([]byte, error) {
+	startTime := time.Now()
+	res, err := http.Get(url)
+	dur := time.Since(startTime)
+	log.Infof("fetched %s in %v", url, dur)
+	if err != nil {
+		return nil, err
+	}
 
+	body, err := ioutil.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+type svStats struct {
+	FarmID                           string
+	Abigail, Alex, Caroline, Clint   uint8
+	Demetrius, Dwarf, Elliott, Emily uint8
+	Evelyn, George, Gus, Haley       uint8
+	Harvey, Henchman, Jas, Jodi      uint8
+	Kent, Krobus, Leah, Lewis        uint8
+	Linus, Marnie, Maru, Pam         uint8
+	Penny, Pierre, Robin, Sam        uint8
+	Sandy, Sebastian, Shane, Vincent uint8
+	Willy, Wizard                    uint8
+}
+
+func processFarmID(farmID string, statsQueue chan svStats) {
+	log.Debugf("processing farmID %s", farmID)
+
+	u, _ := url.Parse("https://upload.farm")
+	u.Path = path.Join(u.Path, farmID)
+
+	body, err := fetchURL(u.String())
+	if err != nil {
+		return
+	}
+
+	re := regexp.MustCompile("><br>([A-Z][a-z]+): ([0-9]+)/10'>")
+	result := re.FindAllStringSubmatch(string(body), -1)
+	if result == nil {
+		return
+	}
+
+	stats := svStats{FarmID: farmID}
+	v := reflect.ValueOf(&stats).Elem()
+
+	for _, match := range result {
+		name := match[1]
+		rating := match[2]
+		i, err := strconv.ParseUint(rating, 10, 8)
+		if err != nil {
+			log.Debugf("cannot parse %s's score: %s/10", name, rating)
+			continue
+		}
+
+		f := v.FieldByName(name)
+		if !f.IsValid() {
+			log.Warnf("%s CANNOT BE SET\n", name)
+			continue
+		}
+
+		f.SetUint(i)
+	}
+
+	statsQueue <- stats
 }
 
 func extractFarmID(miniRecent string) (string, error) {
