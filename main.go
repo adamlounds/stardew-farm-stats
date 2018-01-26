@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/firstrow/tcp_server"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -47,6 +49,36 @@ func main() {
 		for farmID := range queue {
 			processFarmID(farmID, statsQueue)
 		}
+	}()
+
+	go func() {
+		telnetSvr := tcp_server.New("localhost:9999")
+		telnetSvr.OnNewClient(func(c *tcp_server.Client) {
+			c.Send("welcome\n")
+		})
+		telnetSvr.OnNewMessage(func(c *tcp_server.Client, message string) {
+			message = strings.TrimRight(message, "\r\n")
+			if message[0] == '/' {
+				switch {
+				case message == "/fetch":
+					fetchRecents(queue)
+					c.Send("fetched recent farms\n")
+				default:
+					c.Send(fmt.Sprintf("unknown command [%s] \n", message))
+				}
+				return
+			}
+
+			farmID, err := extractFarmID(message)
+			if err == nil {
+				queue <- farmID
+				c.Send(fmt.Sprintf("queued farm id %s\n", farmID))
+				return
+			}
+			c.Send("invalid farm id\n")
+			return
+		})
+		telnetSvr.Listen()
 	}()
 
 	go func() {
@@ -175,8 +207,8 @@ func processFarmID(farmID string, statsQueue chan svStats) {
 }
 
 func extractFarmID(miniRecent string) (string, error) {
-	if len(miniRecent) < 7 {
-		return "", fmt.Errorf("invalid miniRecent, must be at least 7 chars long")
+	if len(miniRecent) < 6 {
+		return "", fmt.Errorf("invalid miniRecent, must be at least 6 chars long")
 	}
 	id := miniRecent[:6]
 	return id, nil
