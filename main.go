@@ -12,6 +12,7 @@ import (
 	"path"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -29,30 +30,52 @@ const (
 	defaultTelnetPort = ":3333"
 )
 
+type svStats struct {
+	FarmID                           string
+	Abigail, Alex, Caroline, Clint   uint8
+	Demetrius, Dwarf, Elliott, Emily uint8
+	Evelyn, George, Gus, Haley       uint8
+	Harvey, Henchman, Jas, Jodi      uint8
+	Kent, Krobus, Leah, Lewis        uint8
+	Linus, Marnie, Maru, Pam         uint8
+	Penny, Pierre, Robin, Sam        uint8
+	Sandy, Sebastian, Shane, Vincent uint8
+	Willy, Wizard                    uint8
+}
+
+var allFarms map[string]svStats
+
 var serverCtx context.Context
 
 func main() {
 	//log.SetOutput(ioutil.Discard)
 	log.SetLevel(log.DebugLevel)
-	log.Infof("Starting Innocuous server %s", "v1.0")
+	log.Infof("Starting Innocuous server %s %d", "v1.0", runtime.GOMAXPROCS(0))
 
-	queue := make(chan string)
-	statsQueue := make(chan svStats)
+	allFarms = make(map[string]svStats)
+
+	queue := make(chan string, 100)
+	statsQueue := make(chan svStats, 100)
 
 	go func() {
 		for stats := range statsQueue {
 			log.Infof("processing stats %v", stats)
+			allFarms[stats.FarmID] = stats
+			log.Infof("processed stats %v", len(allFarms))
 		}
 	}()
 
-	go func() {
+	farmIDProcessor := func() {
+		fmt.Printf("processing farm ids[%d]\n", len(queue))
 		for farmID := range queue {
 			processFarmID(farmID, statsQueue)
 		}
-	}()
+	}
+	go farmIDProcessor()
+	go farmIDProcessor()
 
 	go func() {
-		telnetSvr := tcp_server.New("localhost:9999")
+		telnetSvr := tcp_server.New("localhost" + defaultTelnetPort)
 		telnetSvr.OnNewClient(func(c *tcp_server.Client) {
 			c.Send("welcome\n")
 		})
@@ -63,6 +86,20 @@ func main() {
 				case message == "/fetch":
 					fetchRecents(queue)
 					c.Send("fetched recent farms\n")
+				case message == "/qsize":
+					c.Send(fmt.Sprintf("queue size is [%d]\n", len(queue)))
+				case message == "/show":
+					c.Send(fmt.Sprintf("stats:\n"))
+					for _, stats := range allFarms {
+						c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail ))
+					}
+				case message == "/spider":
+					fetchMany(queue)
+					c.Send("simple spider\n")
+				case strings.HasPrefix(message, "/spider "):
+					// TODO parse & send page number
+					fetchMany(queue)
+					c.Send("complex spider\n")
 				default:
 					c.Send(fmt.Sprintf("unknown command [%s] \n", message))
 				}
@@ -107,8 +144,45 @@ func fetchRecents(queue chan string) {
 	}
 
 	for _, farmID := range farmIDs {
+		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
 		queue <- farmID
+		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
 	}
+}
+
+func fetchMany(queue chan string) {
+	body, err := fetchURL("https://upload.farm/all?p=4695&sort=recent")
+	if err != nil {
+		return
+	}
+
+	farmIDs, err := farmIDsFromSearch(body)
+	if err != nil {
+		fmt.Printf("could not find farmIDs: %s\n", err)
+		return
+	}
+
+	for _, farmID := range farmIDs {
+		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
+		queue <- farmID
+		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
+	}
+}
+
+func farmIDsFromSearch(body []byte) ([]string, error) {
+	re := regexp.MustCompile("/([A-Za-z0-9]{6})-f.png")
+	result := re.FindAllStringSubmatch(string(body), -1)
+	if result == nil {
+		return nil, fmt.Errorf("no farms found")
+	}
+
+	var farmIDs []string
+	for _, match := range result {
+		farmID := match[1]
+		farmIDs = append(farmIDs, farmID)
+	}
+
+	return farmIDs, nil
 }
 
 func extractFarmIDs(body []byte) ([]string, error) {
@@ -152,21 +226,13 @@ func fetchURL(url string) ([]byte, error) {
 	return body, nil
 }
 
-type svStats struct {
-	FarmID                           string
-	Abigail, Alex, Caroline, Clint   uint8
-	Demetrius, Dwarf, Elliott, Emily uint8
-	Evelyn, George, Gus, Haley       uint8
-	Harvey, Henchman, Jas, Jodi      uint8
-	Kent, Krobus, Leah, Lewis        uint8
-	Linus, Marnie, Maru, Pam         uint8
-	Penny, Pierre, Robin, Sam        uint8
-	Sandy, Sebastian, Shane, Vincent uint8
-	Willy, Wizard                    uint8
-}
-
 func processFarmID(farmID string, statsQueue chan svStats) {
 	log.Debugf("processing farmID %s", farmID)
+
+	if _, ok := allFarms[farmID]; ok {
+		log.Debugf("skipping %s - already processed", farmID)
+		return
+	}
 
 	u, _ := url.Parse("https://upload.farm")
 	u.Path = path.Join(u.Path, farmID)
@@ -208,7 +274,10 @@ func processFarmID(farmID string, statsQueue chan svStats) {
 
 func extractFarmID(miniRecent string) (string, error) {
 	if len(miniRecent) < 6 {
-		return "", fmt.Errorf("invalid miniRecent, must be at least 6 chars long")
+		return "", fmt.Errorf("invalid farmID, must be at least 6 chars long")
+	}
+	if (miniRecent[0] != '1') {
+		return "", fmt.Errorf("invalid FarmID; should start with 1")
 	}
 	id := miniRecent[:6]
 	return id, nil
