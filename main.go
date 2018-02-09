@@ -147,9 +147,16 @@ func telnetServer(queue chan string) {
 				}()
 				c.Send("simple spider\n")
 			case strings.HasPrefix(message, "/spider "):
-				// TODO parse & send page number
+				pageNum, err := strconv.Atoi(strings.TrimPrefix(message, "/spider "))
+				if err != nil {
+					c.Send("invalid page number")
+					return
+				} else {
+					c.Send(fmt.Sprintf("valid page number %d", pageNum))
+				}
 				go func() {
-					fetchMany(queue)
+					// TODO parse & send page number
+					fetchPage(queue, pageNum)
 				}()
 				c.Send("complex spider\n")
 			default:
@@ -186,6 +193,12 @@ func fetchRecents(queue chan string) {
 		queue <- farmID
 		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
 	}
+}
+
+func fetchPage(queue chan string, pageNum int) {
+	pageNum++
+	//TODO implement!
+	fetchMany(queue)
 }
 
 func fetchMany(queue chan string) {
