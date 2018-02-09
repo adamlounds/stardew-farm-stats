@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,7 +44,10 @@ type svStats struct {
 	Willy, Wizard                    uint8
 }
 
-var allFarms map[string]svStats
+var allFarms struct {
+	mu sync.Mutex
+	stats map[string]svStats
+}
 
 var serverCtx context.Context
 
@@ -52,7 +56,7 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 	log.Infof("Starting Innocuous server %s %d", "v1.0", runtime.GOMAXPROCS(0))
 
-	allFarms = make(map[string]svStats)
+	allFarms.stats = make(map[string]svStats)
 
 	queue := make(chan string, 100)
 	statsQueue := make(chan svStats, 100)
@@ -60,8 +64,10 @@ func main() {
 	go func() {
 		for stats := range statsQueue {
 			log.Infof("processing stats %v", stats)
-			allFarms[stats.FarmID] = stats
-			log.Infof("processed stats %v", len(allFarms))
+			allFarms.mu.Lock();
+			allFarms.stats[stats.FarmID] = stats
+			log.Infof("processed stats %v", len(allFarms.stats))
+			allFarms.mu.Unlock();
 		}
 	}()
 
@@ -74,49 +80,7 @@ func main() {
 	go farmIDProcessor()
 	go farmIDProcessor()
 
-	go func() {
-		telnetSvr := tcp_server.New("localhost" + defaultTelnetPort)
-		telnetSvr.OnNewClient(func(c *tcp_server.Client) {
-			c.Send("welcome\n")
-		})
-		telnetSvr.OnNewMessage(func(c *tcp_server.Client, message string) {
-			message = strings.TrimRight(message, "\r\n")
-			if message[0] == '/' {
-				switch {
-				case message == "/fetch":
-					fetchRecents(queue)
-					c.Send("fetched recent farms\n")
-				case message == "/qsize":
-					c.Send(fmt.Sprintf("queue size is [%d]\n", len(queue)))
-				case message == "/show":
-					c.Send(fmt.Sprintf("stats:\n"))
-					for _, stats := range allFarms {
-						c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail ))
-					}
-				case message == "/spider":
-					fetchMany(queue)
-					c.Send("simple spider\n")
-				case strings.HasPrefix(message, "/spider "):
-					// TODO parse & send page number
-					fetchMany(queue)
-					c.Send("complex spider\n")
-				default:
-					c.Send(fmt.Sprintf("unknown command [%s] \n", message))
-				}
-				return
-			}
-
-			farmID, err := extractFarmID(message)
-			if err == nil {
-				queue <- farmID
-				c.Send(fmt.Sprintf("queued farm id %s\n", farmID))
-				return
-			}
-			c.Send("invalid farm id\n")
-			return
-		})
-		telnetSvr.Listen()
-	}()
+	go telnetServer(queue)
 
 	go func() {
 		for {
@@ -130,6 +94,56 @@ func main() {
 
 	select {}
 
+}
+
+func telnetServer (queue chan string) {
+	telnetSvr := tcp_server.New("localhost" + defaultTelnetPort)
+	telnetSvr.OnNewClient(func(c *tcp_server.Client) {
+		c.Send("welcome\n")
+	})
+	telnetSvr.OnNewMessage(func(c *tcp_server.Client, message string) {
+		message = strings.TrimRight(message, "\r\n")
+		if message[0] == '/' {
+			switch {
+			case message == "/fetch":
+				fetchRecents(queue)
+				c.Send("fetched recent farms\n")
+			case message == "/qsize":
+				c.Send(fmt.Sprintf("queue size is [%d]\n", len(queue)))
+			case message == "/show":
+				c.Send(fmt.Sprintf("stats:\n"))
+				allFarms.mu.Lock();
+				for _, stats := range allFarms.stats {
+					c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail ))
+				}
+				allFarms.mu.Unlock();
+			case message == "/spider":
+				go func() {
+					fetchMany(queue)
+				}()
+				c.Send("simple spider\n")
+			case strings.HasPrefix(message, "/spider "):
+				// TODO parse & send page number
+				go func() {
+					fetchMany(queue)
+				}()
+				c.Send("complex spider\n")
+			default:
+				c.Send(fmt.Sprintf("unknown command [%s] \n", message))
+			}
+			return
+		}
+
+		farmID, err := extractFarmID(message)
+		if err == nil {
+			queue <- farmID
+			c.Send(fmt.Sprintf("queued farm id %s\n", farmID))
+			return
+		}
+		c.Send("invalid farm id\n")
+		return
+	})
+	telnetSvr.Listen()
 }
 
 func fetchRecents(queue chan string) {
@@ -229,7 +243,10 @@ func fetchURL(url string) ([]byte, error) {
 func processFarmID(farmID string, statsQueue chan svStats) {
 	log.Debugf("processing farmID %s", farmID)
 
-	if _, ok := allFarms[farmID]; ok {
+	allFarms.mu.Lock();
+	_, ok := allFarms.stats[farmID];
+	allFarms.mu.Unlock();
+	if ok {
 		log.Debugf("skipping %s - already processed", farmID)
 		return
 	}

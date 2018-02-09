@@ -15,11 +15,12 @@ func init() {
 func TestExtraction(t *testing.T) {
 	Convey("When parsing a JSON bytearray", t, func() {
 		Convey("Invalid json array entries are ignored", func() {
-			body := []byte("[\"aBC123.stuff\", \"\", \"abc123\"]")
+			body := []byte("[\"1BC123.stuff\", \"\", \"1bc123\"]")
 			farmIDs, err := extractFarmIDs(body)
 			So(err, ShouldBeNil)
-			So(len(farmIDs), ShouldEqual, 1)
-			So(farmIDs[0], ShouldEqual, "aBC123")
+			So(len(farmIDs), ShouldEqual, 2)
+			So(farmIDs[0], ShouldEqual, "1BC123")
+			So(farmIDs[1], ShouldEqual, "1bc123")
 		})
 		Convey("an invalid json bytearray returns an error", func() {
 			body := []byte("x[]")
@@ -28,9 +29,9 @@ func TestExtraction(t *testing.T) {
 		})
 	})
 	Convey("Given a valid mini_recents entry", t, func() {
-		farmID, err := extractFarmID("aBC123.otherstuff")
+		farmID, err := extractFarmID("1BC123.otherstuff")
 		So(err, ShouldBeNil)
-		So(farmID, ShouldEqual, "aBC123")
+		So(farmID, ShouldEqual, "1BC123")
 	})
 
 	Convey("Given an empty mini_recents entry", t, func() {
