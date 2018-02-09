@@ -2,10 +2,16 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/firstrow/tcp_server"
+  packages = ["."]
+  revision = "3c550f1587f05cb2e740396738f2723dbb0ee7b1"
+
+[[projects]]
   name = "github.com/go-chi/chi"
-  packages = [".","middleware"]
-  revision = "e83ac2304db3c50cf03d96a2fcd39009d458bc35"
-  version = "v3.3.2"
+  packages = [".","middleware","render"]
+  revision = "967844826e58cf31213a7dfb82455d242ad85101"
+  version = "v3.0.0"
 
 [[projects]]
   branch = "master"
@@ -18,12 +24,6 @@
   packages = ["."]
   revision = "77f18212c9c7edc9bd6a33d383a7b545ce62f064"
   version = "v4.2.1"
-
-[[projects]]
-  name = "github.com/pressly/lg"
-  packages = ["."]
-  revision = "e1454b97cc475e5c2dfe60af20d8243fdabb13a3"
-  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/sirupsen/logrus"
@@ -64,6 +64,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b0bbc026fa4c5c71f32c38d0d5ba3ffef7229373f24936488fd0d4893d253031"
+  inputs-digest = "bc091f443e2bb2ac08fd84107039aee36594275257a3422b9658652b707f46bc"
   solver-name = "gps-cdcl"
   solver-version = 1

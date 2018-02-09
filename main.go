@@ -3,9 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/firstrow/tcp_server"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -17,6 +14,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/firstrow/tcp_server"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
+	"github.com/go-chi/chi/render"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
 )
 
 type statistics struct {
@@ -45,7 +49,7 @@ type svStats struct {
 }
 
 var allFarms struct {
-	mu sync.Mutex
+	mu    sync.Mutex
 	stats map[string]svStats
 }
 
@@ -64,10 +68,10 @@ func main() {
 	go func() {
 		for stats := range statsQueue {
 			log.Infof("processing stats %v", stats)
-			allFarms.mu.Lock();
+			allFarms.mu.Lock()
 			allFarms.stats[stats.FarmID] = stats
 			log.Infof("processed stats %v", len(allFarms.stats))
-			allFarms.mu.Unlock();
+			allFarms.mu.Unlock()
 		}
 	}()
 
@@ -79,8 +83,8 @@ func main() {
 	}
 	go farmIDProcessor()
 	go farmIDProcessor()
-
 	go telnetServer(queue)
+	go httpServer()
 
 	go func() {
 		for {
@@ -96,7 +100,27 @@ func main() {
 
 }
 
-func telnetServer (queue chan string) {
+func httpServer() {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", middleware.GetReqID(r.Context()))
+		allFarms.mu.Lock()
+		render.JSON(w, r, allFarms.stats)
+		allFarms.mu.Unlock()
+
+	})
+
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "public/favicon.ico")
+	})
+
+	http.ListenAndServe(":8888", r)
+}
+
+func telnetServer(queue chan string) {
 	telnetSvr := tcp_server.New("localhost" + defaultTelnetPort)
 	telnetSvr.OnNewClient(func(c *tcp_server.Client) {
 		c.Send("welcome\n")
@@ -112,11 +136,11 @@ func telnetServer (queue chan string) {
 				c.Send(fmt.Sprintf("queue size is [%d]\n", len(queue)))
 			case message == "/show":
 				c.Send(fmt.Sprintf("stats:\n"))
-				allFarms.mu.Lock();
+				allFarms.mu.Lock()
 				for _, stats := range allFarms.stats {
-					c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail ))
+					c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail))
 				}
-				allFarms.mu.Unlock();
+				allFarms.mu.Unlock()
 			case message == "/spider":
 				go func() {
 					fetchMany(queue)
@@ -243,9 +267,9 @@ func fetchURL(url string) ([]byte, error) {
 func processFarmID(farmID string, statsQueue chan svStats) {
 	log.Debugf("processing farmID %s", farmID)
 
-	allFarms.mu.Lock();
-	_, ok := allFarms.stats[farmID];
-	allFarms.mu.Unlock();
+	allFarms.mu.Lock()
+	_, ok := allFarms.stats[farmID]
+	allFarms.mu.Unlock()
 	if ok {
 		log.Debugf("skipping %s - already processed", farmID)
 		return
@@ -293,7 +317,7 @@ func extractFarmID(miniRecent string) (string, error) {
 	if len(miniRecent) < 6 {
 		return "", fmt.Errorf("invalid farmID, must be at least 6 chars long")
 	}
-	if (miniRecent[0] != '1') {
+	if miniRecent[0] != '1' {
 		return "", fmt.Errorf("invalid FarmID; should start with 1")
 	}
 	id := miniRecent[:6]
