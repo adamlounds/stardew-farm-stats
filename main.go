@@ -32,7 +32,7 @@ type statistics struct {
 
 const (
 	defaultHTTPport   = ":8080"
-	defaultTelnetPort = ":3333"
+	defaultTelnetPort = "3333"
 )
 
 type svStats struct {
@@ -83,7 +83,7 @@ func main() {
 	}
 	go farmIDProcessor()
 	go farmIDProcessor()
-	go telnetServer(queue)
+	go telnetServer(defaultTelnetPort, queue)
 	go httpServer()
 
 	go func() {
@@ -120,15 +120,21 @@ func httpServer() {
 	http.ListenAndServe(":8888", r)
 }
 
-func telnetServer(queue chan string) {
-	telnetSvr := tcp_server.New("localhost" + defaultTelnetPort)
+func telnetServer(telnetPort string, queue chan string) {
+	telnetSvr := tcp_server.New("127.0.0.1:" + telnetPort)
 	telnetSvr.OnNewClient(func(c *tcp_server.Client) {
+		log.Println("new connection")
 		c.Send("welcome\n")
+		log.Println("sent welcome message")
 	})
 	telnetSvr.OnNewMessage(func(c *tcp_server.Client, message string) {
+		log.Printf("received message %s", message)
 		message = strings.TrimRight(message, "\r\n")
 		if message[0] == '/' {
 			switch {
+			case message == "/ping":
+				log.Printf("sending pong\n")
+				c.Send("pong\n")
 			case message == "/fetch":
 				fetchRecents(queue)
 				c.Send("fetched recent farms\n")
@@ -151,9 +157,10 @@ func telnetServer(queue chan string) {
 				if err != nil {
 					c.Send("invalid page number")
 					return
-				} else {
-					c.Send(fmt.Sprintf("valid page number %d", pageNum))
 				}
+
+				c.Send(fmt.Sprintf("valid page number %d", pageNum))
+
 				go func() {
 					// TODO parse & send page number
 					fetchPage(queue, pageNum)
