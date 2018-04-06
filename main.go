@@ -123,23 +123,40 @@ func httpServer() {
 func telnetServer(telnetPort string, queue chan string) {
 	telnetSvr := tcp_server.New("127.0.0.1:" + telnetPort)
 	telnetSvr.OnNewClient(func(c *tcp_server.Client) {
-		log.Println("new connection")
+		// log.Println("new connection")
 		c.Send("welcome\n")
-		log.Println("sent welcome message")
+		// log.Println("sent welcome message")
 	})
 	telnetSvr.OnNewMessage(func(c *tcp_server.Client, message string) {
-		log.Printf("received message %s", message)
+		// log.Printf("received message %s", message)
 		message = strings.TrimRight(message, "\r\n")
+		if len(message) == 0 {
+			// empty line, so message[0] is not present :-) issue #1
+			c.Send("/help for help\n")
+			return
+		}
+
 		if message[0] == '/' {
 			switch {
 			case message == "/ping":
-				log.Printf("sending pong\n")
 				c.Send("pong\n")
+			case message == "/help":
+				c.Send("usage:\n" +
+					"1F4Tjc - fetch farm 1F4Tjc if it's a valid id\n" +
+					"/ping - check connection, returns 'pong'\n" +
+					"/qsize - query size of queue\n" +
+					"/show - show current stats\n" +
+					"/fetch - fetch latest farm list and process new ones\n" +
+					"/spider - grab latest farms and add to queue\n" +
+					"/spider 3 - grab page 3 of historical farms and add to queue\n" +
+					"/quit - terminate connection\n")
 			case message == "/fetch":
 				fetchRecents(queue)
 				c.Send("fetched recent farms\n")
 			case message == "/qsize":
 				c.Send(fmt.Sprintf("queue size is [%d]\n", len(queue)))
+			case message == "/quit":
+				c.Close()
 			case message == "/show":
 				c.Send(fmt.Sprintf("stats:\n"))
 				allFarms.mu.Lock()
@@ -178,7 +195,7 @@ func telnetServer(telnetPort string, queue chan string) {
 			c.Send(fmt.Sprintf("queued farm id %s\n", farmID))
 			return
 		}
-		c.Send("invalid farm id\n")
+		c.Send("invalid farm id (/help for help)\n")
 		return
 	})
 	telnetSvr.Listen()

@@ -1,9 +1,8 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
-	"io"
 	"net"
 	"testing"
 	"time"
@@ -57,69 +56,28 @@ func TestTelnet(t *testing.T) {
 		Convey("we can connect to it", func() {
 			d := net.Dialer{Timeout: 10 * time.Millisecond}
 			conn, err := d.Dial("tcp", "127.0.0.1:3334")
-			conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+			conn.SetReadDeadline(time.Now().Add(1000 * time.Millisecond))
 			defer conn.Close()
 			So(err, ShouldBeNil)
-			// var buf bytes.Buffer
-			// io.Copy(&buf, conn)
-			// msg, err := buf.ReadString('\n')
-			// So(err, ShouldBeNil)
 
-			// So(msg, ShouldEqual, "welcome\n")
-
-			// r := bufio.NewReader(conn)
-			// w := bufio.NewWriter(conn)
-			// scanner := bufio.NewScanner(r)
-			// time.Sleep(1000 * time.Millisecond)
-			// // w := bufio.NewWriter(conn)
-			// w.Write([]byte("/ping\n"))
-			// w.Flush()
-			// log.Printf("can read %d bytes from conn", r.Buffered())
-			// w.Write([]byte("/ping\n"))
-			// w.Flush()
-			// time.Sleep(1000 * time.Millisecond)
-			// log.Printf("can read %d bytes from conn", r.Buffered())
-			// for scanner.Scan() {
-			// 	fmt.Printf("scanned %s", scanner.Text())
-			// 	break
-			// }
-			// log.Printf("scanned")
-			var buf bytes.Buffer
-			_, err = io.Copy(&buf, conn)
-			msg, err := buf.ReadString('\n') // copies until EOF, 'welcome'
+			r := bufio.NewReader(conn)
+			msg, err := r.ReadString('\n')
 			So(err, ShouldBeNil)
 			So(msg, ShouldEqual, "welcome\n")
 
-			fmt.Fprint(conn, "/ping\n")
-			time.Sleep(500 * time.Millisecond)
+			Convey("...ping to get a response", func() {
+				fmt.Fprint(conn, "/ping\n")
+				msg, err := r.ReadString('\n')
+				So(err, ShouldBeNil)
+				So(msg, ShouldEqual, "pong\n")
 
-			var buf2 bytes.Buffer
-			numBytes, err := io.Copy(&buf2, conn)
-			fmt.Printf("copied %d bytes (%s)", numBytes, err) // gets timeout error!
-			msg, err = buf2.ReadString('\n')
-			fmt.Printf("copied %s, %s", msg, err)
-			So(err, ShouldBeNil)
-			So(msg, ShouldEqual, "pong\n")
-
-			// for {
-			// 	count := r.Buffered()
-			// 	log.Printf("can read %d bytes from r", count)
-			// 	if count > 0 {
-			// 		break
-			// 	}
-			// 	break
-			// }
-
-			// Convey("and send a ping", func() {
-			// 	conn.Write([]byte("/ping\n"))
-			// 	time.Sleep(1000 * time.Millisecond)
-			// 	// var buf bytes.Buffer
-			// 	// io.Copy(&buf, conn)
-			// 	// msg, err := buf.ReadString('\n')
-			// 	So(err, ShouldBeNil)
-
-			// 	// So(msg, ShouldEqual, "welcome\n")
-			// })
+				Convey("...and sending an empty line does not crash (issue #1)", func() {
+					fmt.Fprint(conn, "\n")
+					msg, err := r.ReadString('\n')
+					So(err, ShouldBeNil)
+					So(msg, ShouldEqual, "/help for help\n")
+				})
+			})
 		})
 
 	})
