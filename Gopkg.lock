@@ -26,6 +26,18 @@
   version = "v4.2.1"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/kavu/go-resque"
+  packages = [".","driver","godis"]
+  revision = "31373a98b5c1b8e638461dca63a3c65e0eceed81"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/simonz05/godis"
+  packages = ["redis"]
+  revision = "109ffb8e37383eb0e84811aefd5c6b952dfb005d"
+
+[[projects]]
   name = "github.com/sirupsen/logrus"
   packages = ["."]
   revision = "d682213848ed68c0a260ca37d6dd5ace8423f5ba"
@@ -64,6 +76,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "bc091f443e2bb2ac08fd84107039aee36594275257a3422b9658652b707f46bc"
+  inputs-digest = "5801020039f20926ba7479d78e194b0268bd3b537fa90a5508b92966f4148705"
   solver-name = "gps-cdcl"
   solver-version = 1

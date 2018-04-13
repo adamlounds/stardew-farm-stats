@@ -19,6 +19,9 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/render"
+	resque "github.com/kavu/go-resque"
+	_ "github.com/kavu/go-resque/godis"
+	"github.com/simonz05/godis/redis"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
@@ -64,20 +67,26 @@ func main() {
 
 	queue := make(chan string, 100)
 	statsQueue := make(chan svStats, 100)
+	client := redis.New("tcp:127.0.0.1:6379", 0, "")               // Create new Redis client to use for enqueuing
+	enqueuer := resque.NewRedisEnqueuer("godis", client, "resque") // Create enqueuer instance
 
 	go func() {
 		for stats := range statsQueue {
-			log.Infof("processing stats %v", stats)
+			log.Debugf("processing stats %v", stats)
 			allFarms.mu.Lock()
 			allFarms.stats[stats.FarmID] = stats
-			log.Infof("processed stats %v", len(allFarms.stats))
+			log.Debugf("processed stats %v", len(allFarms.stats))
 			allFarms.mu.Unlock()
 		}
 	}()
 
 	farmIDProcessor := func() {
-		fmt.Printf("processing farm ids[%d]\n", len(queue))
+		log.Debugf("processing farm ids[%d]\n", len(queue))
 		for farmID := range queue {
+			err := enqueueRedis(enqueuer, farmID)
+			if err != nil {
+				log.Warnf("could not enqueue: [%v]", err)
+			}
 			processFarmID(farmID, statsQueue)
 		}
 	}
@@ -98,6 +107,11 @@ func main() {
 
 	select {}
 
+}
+
+func enqueueRedis(enqueuer *resque.RedisEnqueuer, farmID string) error {
+	_, err := enqueuer.Enqueue("queue:farm", "Process::Farm", farmID)
+	return err
 }
 
 func httpServer() {
@@ -213,9 +227,7 @@ func fetchRecents(queue chan string) {
 	}
 
 	for _, farmID := range farmIDs {
-		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
 		queue <- farmID
-		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
 	}
 }
 
@@ -233,14 +245,14 @@ func fetchMany(queue chan string) {
 
 	farmIDs, err := farmIDsFromSearch(body)
 	if err != nil {
-		fmt.Printf("could not find farmIDs: %s\n", err)
+		log.Warnf("could not find farmIDs: %s\n", err)
 		return
 	}
 
 	for _, farmID := range farmIDs {
-		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
+		log.Debugf("queueing farmID [%s] [%d]", farmID, len(queue))
 		queue <- farmID
-		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
+		log.Debugf("queued farmID [%s] [%d]", farmID, len(queue))
 	}
 }
 
@@ -276,7 +288,7 @@ func extractFarmIDs(body []byte) ([]string, error) {
 			log.Infof("unexpected entry [%s]", entry)
 			continue
 		}
-		log.Infof("%s -> %s (%v)", entry, farmID, err)
+		log.Debugf("extract farmID: %s -> %s (%v)", entry, farmID, err)
 		farmIDs = append(farmIDs, farmID)
 	}
 
