@@ -67,8 +67,8 @@ func main() {
 
 	queue := make(chan string, 100)
 	statsQueue := make(chan svStats, 100)
-	client := redis.New("tcp:127.0.0.1:6379", 0, "")               // Create new Redis client to use for enqueuing
-	enqueuer := resque.NewRedisEnqueuer("godis", client, "resque") // Create enqueuer instance
+	enqueuer := resque.NewRedisEnqueuer("godis", client, "resque:") // Create enqueuer instance
+	client := redis.New("tcp:127.0.0.1:6379", 0, "")                // Create new Redis client to use for enqueuing
 
 	go func() {
 		for stats := range statsQueue {
@@ -110,7 +110,7 @@ func main() {
 }
 
 func enqueueRedis(enqueuer *resque.RedisEnqueuer, farmID string) error {
-	_, err := enqueuer.Enqueue("queue:farm", "Process::Farm", farmID)
+	_, err := enqueuer.Enqueue("farm", "Process::Farm", farmID)
 	return err
 }
 
