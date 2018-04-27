@@ -193,7 +193,6 @@ func telnetServer(telnetPort string, queue chan string) {
 				c.Send(fmt.Sprintf("valid page number %d", pageNum))
 
 				go func() {
-					// TODO parse & send page number
 					fetchPage(queue, pageNum)
 				}()
 				c.Send("complex spider\n")
@@ -233,8 +232,33 @@ func fetchRecents(queue chan string) {
 
 func fetchPage(queue chan string, pageNum int) {
 	pageNum++
-	//TODO implement!
-	fetchMany(queue)
+
+	v := url.Values{}
+	v.Set("sort", "recent")
+	v.Set("p", strconv.Itoa(pageNum))
+	u := &url.URL{
+		Scheme:   "https",
+		Host:     "upload.farm",
+		Path:     "/all",
+		RawQuery: v.Encode(),
+	}
+
+	body, err := fetchURL(u.String())
+	if err != nil {
+		return
+	}
+
+	farmIDs, err := farmIDsFromSearch(body)
+	if err != nil {
+		fmt.Printf("could not find farmIDs: %s\n", err)
+		return
+	}
+
+	for _, farmID := range farmIDs {
+		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
+		queue <- farmID
+		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
+	}
 }
 
 func fetchMany(queue chan string) {
