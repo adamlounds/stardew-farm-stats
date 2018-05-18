@@ -134,6 +134,10 @@ clean: ; $(info $(M) cleaning…)	@ ## Cleanup everything
 	@rm -rf bin
 	@rm -rf test/tests.* test/coverage.*
 
+.PHONY: pb
+pb:
+	@protoc -I farmstats/ farmstats/farmstats.proto --go_out=plugins=grpc:farmstats
+
 .PHONY: help
 help:
 	@grep -E '^[ a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
