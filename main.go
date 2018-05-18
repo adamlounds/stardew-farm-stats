@@ -132,7 +132,49 @@ func grpcServer() {
 }
 
 func (s *farmStats) GetStats(ctx context.Context, farmID *pb.FarmID) (*pb.Farm, error) {
-	return &pb.Farm{Id: farmID.Id}, nil
+	allFarms.mu.Lock()
+	stats, ok := allFarms.stats[farmID.Id]
+	allFarms.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("404 not found")
+	}
+	return &pb.Farm{
+		Id:        farmID.Id,
+		Abigail:   stats.Abigail,
+		Alex:      stats.Alex,
+		Caroline:  stats.Caroline,
+		Clint:     stats.Clint,
+		Demetrius: stats.Demetrius,
+		Dwarf:     stats.Dwarf,
+		Elliott:   stats.Elliott,
+		Emily:     stats.Emily,
+		Evelyn:    stats.Evelyn,
+		George:    stats.George,
+		Gus:       stats.Gus,
+		Haley:     stats.Haley,
+		Harvey:    stats.Harvey,
+		Henchman:  stats.Henchman,
+		Jas:       stats.Jas,
+		Jodi:      stats.Jodi,
+		Kent:      stats.Kent,
+		Krobus:    stats.Krobus,
+		Leah:      stats.Leah,
+		Lewis:     stats.Lewis,
+		Linus:     stats.Linus,
+		Marnie:    stats.Marnie,
+		Maru:      stats.Maru,
+		Pam:       stats.Pam,
+		Penny:     stats.Penny,
+		Pierre:    stats.Pierre,
+		Robin:     stats.Robin,
+		Sam:       stats.Sam,
+		Sandy:     stats.Sandy,
+		Sebastian: stats.Sebastian,
+		Shane:     stats.Shane,
+		Vincent:   stats.Vincent,
+		Willy:     stats.Willy,
+		Wizard:    stats.Wizard,
+	}, nil
 }
 
 func httpServer() {
