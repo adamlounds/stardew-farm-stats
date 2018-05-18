@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/adamlounds/stardew-farm-stats/farmstats"
 	"github.com/firstrow/tcp_server"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
@@ -24,6 +26,7 @@ import (
 	"github.com/simonz05/godis/redis"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 type statistics struct {
@@ -40,21 +43,23 @@ const (
 
 type svStats struct {
 	FarmID                           string
-	Abigail, Alex, Caroline, Clint   uint8
-	Demetrius, Dwarf, Elliott, Emily uint8
-	Evelyn, George, Gus, Haley       uint8
-	Harvey, Henchman, Jas, Jodi      uint8
-	Kent, Krobus, Leah, Lewis        uint8
-	Linus, Marnie, Maru, Pam         uint8
-	Penny, Pierre, Robin, Sam        uint8
-	Sandy, Sebastian, Shane, Vincent uint8
-	Willy, Wizard                    uint8
+	Abigail, Alex, Caroline, Clint   uint32
+	Demetrius, Dwarf, Elliott, Emily uint32
+	Evelyn, George, Gus, Haley       uint32
+	Harvey, Henchman, Jas, Jodi      uint32
+	Kent, Krobus, Leah, Lewis        uint32
+	Linus, Marnie, Maru, Pam         uint32
+	Penny, Pierre, Robin, Sam        uint32
+	Sandy, Sebastian, Shane, Vincent uint32
+	Willy, Wizard                    uint32
 }
 
-var allFarms struct {
+type farmStats struct {
 	mu    sync.Mutex
 	stats map[string]svStats
 }
+
+var allFarms farmStats
 
 var serverCtx context.Context
 
@@ -94,6 +99,7 @@ func main() {
 	go farmIDProcessor()
 	go telnetServer(defaultTelnetPort, queue)
 	go httpServer()
+	go grpcServer()
 
 	go func() {
 		for {
@@ -112,6 +118,63 @@ func main() {
 func enqueueRedis(enqueuer *resque.RedisEnqueuer, farmID string) error {
 	_, err := enqueuer.Enqueue("farm", "Process::Farm", farmID)
 	return err
+}
+
+func grpcServer() {
+	lis, err := net.Listen("tcp", "localhost:3334")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	var opts []grpc.ServerOption
+	grpcServer := grpc.NewServer(opts...)
+	pb.RegisterFarmStatsServer(grpcServer, &allFarms)
+	grpcServer.Serve(lis)
+}
+
+func (s *farmStats) GetStats(ctx context.Context, farmID *pb.FarmID) (*pb.Farm, error) {
+	allFarms.mu.Lock()
+	stats, ok := allFarms.stats[farmID.Id]
+	allFarms.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("404 not found")
+	}
+	return &pb.Farm{
+		Id:        farmID.Id,
+		Abigail:   stats.Abigail,
+		Alex:      stats.Alex,
+		Caroline:  stats.Caroline,
+		Clint:     stats.Clint,
+		Demetrius: stats.Demetrius,
+		Dwarf:     stats.Dwarf,
+		Elliott:   stats.Elliott,
+		Emily:     stats.Emily,
+		Evelyn:    stats.Evelyn,
+		George:    stats.George,
+		Gus:       stats.Gus,
+		Haley:     stats.Haley,
+		Harvey:    stats.Harvey,
+		Henchman:  stats.Henchman,
+		Jas:       stats.Jas,
+		Jodi:      stats.Jodi,
+		Kent:      stats.Kent,
+		Krobus:    stats.Krobus,
+		Leah:      stats.Leah,
+		Lewis:     stats.Lewis,
+		Linus:     stats.Linus,
+		Marnie:    stats.Marnie,
+		Maru:      stats.Maru,
+		Pam:       stats.Pam,
+		Penny:     stats.Penny,
+		Pierre:    stats.Pierre,
+		Robin:     stats.Robin,
+		Sam:       stats.Sam,
+		Sandy:     stats.Sandy,
+		Sebastian: stats.Sebastian,
+		Shane:     stats.Shane,
+		Vincent:   stats.Vincent,
+		Willy:     stats.Willy,
+		Wizard:    stats.Wizard,
+	}, nil
 }
 
 func httpServer() {

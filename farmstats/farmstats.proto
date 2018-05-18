@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package farmstats;
+option go_package = "github.com/adamlounds/stardew-farm-stats/farmstats"
+
+service FarmStats {
+  // Get the stats for a given farm
+  rpc GetStats(FarmID) returns (Farm) {}
+}
+
+message FarmID {
+    string id = 1;
+}
+
+message Farm {
+    string id = 1;
+    uint32 abigail = 2;
+    uint32 alex = 3;
+    uint32 caroline = 4;
+    uint32 clint = 5;
+    uint32 demetrius = 6;
+    uint32 dwarf = 7;
+    uint32 elliott = 8;
+    uint32 emily = 9;
+    uint32 evelyn = 10;
+    uint32 george = 11;
+    uint32 gus = 12;
+    uint32 haley = 13;
+    uint32 harvey = 14;
+    uint32 henchman = 15;
+    uint32 jas = 16;
+    uint32 jodi = 17;
+    uint32 kent = 18;
+    uint32 krobus = 19;
+    uint32 leah = 20;
+    uint32 lewis = 21;
+    uint32 linus = 22;
+    uint32 marnie = 23;
+    uint32 maru = 24;
+    uint32 pam = 25;
+    uint32 penny = 26;
+    uint32 pierre = 27;
+    uint32 robin = 28;
+    uint32 sam = 29;
+    uint32 sandy = 30;
+    uint32 sebastian = 31;
+    uint32 shane = 32;
+    uint32 vincent = 33;
+    uint32 willy = 34;
+    uint32 wizard = 35;
+}
