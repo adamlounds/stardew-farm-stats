@@ -134,6 +134,12 @@ clean: ; $(info $(M) cleaning…)	@ ## Cleanup everything
 	@rm -rf bin
 	@rm -rf test/tests.* test/coverage.*
 
+# protobufs/grpc
+# nb to generate multiple either use old grpc-go style
+# https://github.com/grpc/grpc-go/commit/25b4a426b40c26c07c80af674b03db90b5bd4a60
+# or use new-style go generate and have the server define the protobufs it uses
+# eg https://github.com/grpc/grpc-go/blob/master/examples/helloworld/greeter_server/main.go
+# //go:generate protoc -I ../helloworld --go_out=plugins=grpc:../helloworld ../helloworld/helloworld.proto
 .PHONY: pb
 pb:
 	@protoc -I farmstats/ farmstats/farmstats.proto --go_out=plugins=grpc:farmstats

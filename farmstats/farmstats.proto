@@ -1,11 +1,16 @@
 syntax = "proto3";
 
 package farmstats;
-option go_package = "github.com/adamlounds/stardew-farm-stats/farmstats"
+option go_package = "farmstats";
 
 service FarmStats {
   // Get the stats for a given farm
   rpc GetStats(FarmID) returns (Farm) {}
+}
+
+service ImgDownload {
+    // request an image download
+    rpc Fetch(FarmID) returns (Response) {}
 }
 
 message FarmID {
@@ -48,4 +53,8 @@ message Farm {
     uint32 vincent = 33;
     uint32 willy = 34;
     uint32 wizard = 35;
+}
+message Response {
+    uint32 ResponseCode = 1;
+    string id = 2;
 }
