@@ -22,8 +22,6 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/render"
 	resque "github.com/kavu/go-resque"
-	_ "github.com/kavu/go-resque/godis"
-	"github.com/simonz05/godis/redis"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -72,8 +70,6 @@ func main() {
 
 	queue := make(chan string, 100)
 	statsQueue := make(chan svStats, 100)
-	client := redis.New("tcp:127.0.0.1:6379", 0, "")                // Create new Redis client to use for enqueuing
-	enqueuer := resque.NewRedisEnqueuer("godis", client, "resque:") // Create enqueuer instance
 
 	go func() {
 		for stats := range statsQueue {
@@ -88,10 +84,6 @@ func main() {
 	farmIDProcessor := func() {
 		log.Debugf("processing farm ids[%d]\n", len(queue))
 		for farmID := range queue {
-			err := enqueueRedis(enqueuer, farmID)
-			if err != nil {
-				log.Warnf("could not enqueue: [%v]", err)
-			}
 			processFarmID(farmID, statsQueue)
 		}
 	}
