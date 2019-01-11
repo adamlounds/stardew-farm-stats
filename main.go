@@ -186,7 +186,7 @@ func httpServer() {
 		http.ServeFile(w, r, "public/favicon.ico")
 	})
 
-	http.ListenAndServe(":8888", r)
+	http.ListenAndServe(":8080", r)
 }
 
 func telnetServer(telnetPort string, queue chan string) {
