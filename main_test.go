@@ -47,6 +47,76 @@ func TestExtraction(t *testing.T) {
 	})
 }
 
+func TestIDToNum(t *testing.T) {
+	Convey("When converting ids to numbers", t, func() {
+		num, err := idToNum("0")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 0)
+		num, err = idToNum("1")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 1)
+		num, err = idToNum("Z")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 61)
+
+		num, err = idToNum("00")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 0)
+		num, err = idToNum("01")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 1)
+
+		num, err = idToNum("10")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 62)
+		num, err = idToNum("ZZ")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 3843)
+		num, err = idToNum("100")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 3844)
+
+		num, err = idToNum("1H0thB")
+		So(err, ShouldBeNil)
+		So(num, ShouldEqual, 1551627847)
+
+		num, err = idToNum("abc-123")
+		So(err, ShouldNotBeNil)
+		So(num, ShouldEqual, 0)
+	})
+}
+func TestNumToID(t *testing.T) {
+	Convey("When converting numbers to ids", t, func() {
+		str, err := numToID(0)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "")
+		str, err = numToID(1)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "1")
+		str, err = numToID(61)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "Z")
+
+		str, err = numToID(62)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "10")
+		str, err = numToID(3843)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "ZZ")
+		str, err = numToID(3844)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "100")
+
+		str, err = numToID(1551627847)
+		So(err, ShouldBeNil)
+		So(str, ShouldEqual, "1H0thB")
+
+		str, err = numToID(-1)
+		So(err, ShouldNotBeNil)
+		So(str, ShouldEqual, "")
+	})
+}
+
 func TestTelnet(t *testing.T) {
 	Convey("When the telnet server is run", t, func() {
 		queue := make(chan string, 100)

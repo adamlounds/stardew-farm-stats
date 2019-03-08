@@ -60,6 +60,7 @@ type farmStats struct {
 var allFarms farmStats
 
 var serverCtx context.Context
+var chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func main() {
 	//log.SetOutput(ioutil.Discard)
@@ -449,5 +450,41 @@ func extractFarmID(miniRecent string) (string, error) {
 		return "", fmt.Errorf("invalid FarmID; should start with 1")
 	}
 	id := miniRecent[:6]
+	return id, nil
+}
+
+func idToNum(id string) (int64, error) {
+	base := int64(len(chars))
+	multiplier := int64(1)
+	num := int64(0)
+
+	// most significant digit at left, so work from right to left
+	for i := len(id) - 1; i >= 0; i-- {
+		char := string(id[i])
+		idx := strings.Index(chars, char)
+		if idx < 0 {
+			return 0, fmt.Errorf("invalid char [%v] at [%d]", char, i)
+		}
+		num += multiplier * int64(idx)
+		multiplier *= base
+	}
+
+	return num, nil
+}
+
+func numToID(num int64) (string, error) {
+	if num < 0 {
+		return "", fmt.Errorf("cannot convert negative numbers")
+	}
+	base := int64(len(chars))
+	id := ""
+	for {
+		if num <= 0 {
+			break
+		}
+		rem := num % base
+		id = string(chars[rem]) + id
+		num = (num - rem) / base
+	}
 	return id, nil
 }
