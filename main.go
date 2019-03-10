@@ -333,6 +333,11 @@ func fetchMany(queue chan string) {
 		log.Debugf("queueing farmID [%s] [%d]", farmID, len(queue))
 		queue <- farmID
 		log.Debugf("queued farmID [%s] [%d]", farmID, len(queue))
+		_, err := idToNum(farmID)
+		if err != nil {
+			fmt.Printf("cannot convert id? [%s] [%v]", farmID, err)
+			continue
+		}
 	}
 }
 
@@ -460,8 +465,8 @@ func idToNum(id string) (int64, error) {
 
 	// most significant digit at left, so work from right to left
 	for i := len(id) - 1; i >= 0; i-- {
-		char := string(id[i])
-		idx := strings.Index(chars, char)
+		char := id[i]
+		idx := strings.IndexByte(chars, char)
 		if idx < 0 {
 			return 0, fmt.Errorf("invalid char [%v] at [%d]", char, i)
 		}
@@ -477,14 +482,14 @@ func numToID(num int64) (string, error) {
 		return "", fmt.Errorf("cannot convert negative numbers")
 	}
 	base := int64(len(chars))
-	id := ""
+	var id []byte
 	for {
 		if num <= 0 {
 			break
 		}
 		rem := num % base
-		id = string(chars[rem]) + id
+		id = append([]byte{chars[rem]}, id...)
 		num = (num - rem) / base
 	}
-	return id, nil
+	return string(id), nil
 }
