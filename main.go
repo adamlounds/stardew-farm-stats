@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"reflect"
 	"regexp"
@@ -62,32 +61,11 @@ var allFarms farmStats
 
 var serverCtx context.Context
 var chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-var httpClient = http.DefaultClient
-
-func setupHTTPClient() {
-	proxyStr := os.Getenv("http_proxy")
-	if proxyStr == "" {
-		log.Warn("no http_proxy")
-		return
-	}
-
-	proxyURL, err := url.Parse(proxyStr)
-	if err != nil {
-		log.Warnf("Invalid http_proxy %v", err)
-		return
-	}
-
-	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
-
-	log.Infof("using http proxy %v", proxyURL)
-	httpClient.Transport = transport
-}
 
 func main() {
 	//log.SetOutput(ioutil.Discard)
 	log.SetLevel(log.DebugLevel)
 	log.Infof("Starting Innocuous server %s %d", "v1.0", runtime.GOMAXPROCS(0))
-	setupHTTPClient()
 
 	allFarms.stats = make(map[string]svStats)
 
@@ -404,7 +382,7 @@ func extractFarmIDs(body []byte) ([]string, error) {
 
 func fetchURL(url string) ([]byte, error) {
 	startTime := time.Now()
-	res, err := httpClient.Get(url)
+	res, err := http.Get(url)
 	dur := time.Since(startTime)
 	log.Infof("fetched %s in %v", url, dur)
 	if err != nil {
