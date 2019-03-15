@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -120,7 +121,11 @@ func TestNumToID(t *testing.T) {
 func TestTelnet(t *testing.T) {
 	Convey("When the telnet server is run", t, func() {
 		queue := make(chan string, 100)
-		go telnetServer("3334", queue)
+		nilRedis := redis.NewClient(&redis.Options{
+			Addr:     ":6379",
+			PoolSize: 0,
+		})
+		go telnetServer("3334", queue, nilRedis)
 		time.Sleep(100 * time.Millisecond)
 
 		Convey("we can connect to it", func() {

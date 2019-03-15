@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"reflect"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/render"
+	"github.com/go-redis/redis"
 	resque "github.com/kavu/go-resque"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -61,11 +63,36 @@ var allFarms farmStats
 
 var serverCtx context.Context
 var chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+var httpClient = http.DefaultClient
+
+func setupHTTPClient() {
+	proxyStr := os.Getenv("http_proxy")
+	if proxyStr == "" {
+		log.Warn("no http_proxy")
+		return
+	}
+
+	proxyURL, err := url.Parse(proxyStr)
+	if err != nil {
+		log.Warnf("Invalid http_proxy %v", err)
+		return
+	}
+
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+
+	log.Infof("using http proxy %v", proxyURL)
+	httpClient.Transport = transport
+}
 
 func main() {
 	//log.SetOutput(ioutil.Discard)
 	log.SetLevel(log.DebugLevel)
 	log.Infof("Starting Innocuous server %s %d", "v1.0", runtime.GOMAXPROCS(0))
+	redisdb := redis.NewClient(&redis.Options{
+		Addr:     ":6379",
+		PoolSize: 0,
+	})
+	setupHTTPClient()
 
 	allFarms.stats = make(map[string]svStats)
 
@@ -90,7 +117,7 @@ func main() {
 	}
 	go farmIDProcessor()
 	go farmIDProcessor()
-	go telnetServer(defaultTelnetPort, queue)
+	go telnetServer(defaultTelnetPort, queue, redisdb)
 	go httpServer()
 	go grpcServer()
 
@@ -190,7 +217,7 @@ func httpServer() {
 	http.ListenAndServe(":8080", r)
 }
 
-func telnetServer(telnetPort string, queue chan string) {
+func telnetServer(telnetPort string, queue chan string, redisdb *redis.Client) {
 	telnetSvr := tcp_server.New("127.0.0.1:" + telnetPort)
 	telnetSvr.OnNewClient(func(c *tcp_server.Client) {
 		// log.Println("new connection")
@@ -236,9 +263,29 @@ func telnetServer(telnetPort string, queue chan string) {
 				allFarms.mu.Unlock()
 			case message == "/spider":
 				go func() {
-					fetchMany(queue)
+					fetchMany(queue, redisdb)
 				}()
 				c.Send("simple spider\n")
+			case strings.HasPrefix(message, "/spiderall "):
+				pageNum, err := strconv.Atoi(strings.TrimPrefix(message, "/spiderall "))
+				if err != nil {
+					c.Send("invalid last page number")
+					return
+				}
+
+				c.Send(fmt.Sprintf("spidering from page %d", pageNum))
+				go func() {
+					var seenIDs []string
+					for i := pageNum; i >= 0; i-- {
+						idsFromPage, err := fetchPage(redisdb, i)
+						if err != nil {
+							continue
+						}
+						seenIDs = append(seenIDs, idsFromPage...)
+					}
+					log.Infof("finished reading pages, saw %v", seenIDs)
+				}()
+				c.Send("multipage spider\n")
 			case strings.HasPrefix(message, "/spider "):
 				pageNum, err := strconv.Atoi(strings.TrimPrefix(message, "/spider "))
 				if err != nil {
@@ -249,7 +296,14 @@ func telnetServer(telnetPort string, queue chan string) {
 				c.Send(fmt.Sprintf("valid page number %d", pageNum))
 
 				go func() {
-					fetchPage(queue, pageNum)
+					idsFromPage, err := fetchPage(redisdb, pageNum)
+					if err == nil {
+						for _, farmID := range idsFromPage {
+							fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
+							queue <- farmID
+							fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
+						}
+					}
 				}()
 				c.Send("complex spider\n")
 			default:
@@ -286,9 +340,7 @@ func fetchRecents(queue chan string) {
 	}
 }
 
-func fetchPage(queue chan string, pageNum int) {
-	pageNum++
-
+func fetchPage(redisdb zAddNXer, pageNum int) ([]string, error) {
 	v := url.Values{}
 	v.Set("sort", "recent")
 	v.Set("p", strconv.Itoa(pageNum))
@@ -299,25 +351,52 @@ func fetchPage(queue chan string, pageNum int) {
 		RawQuery: v.Encode(),
 	}
 
+	var farmIDs []string
+
 	body, err := fetchURL(u.String())
 	if err != nil {
-		return
+		return farmIDs, err
 	}
 
-	farmIDs, err := farmIDsFromSearch(body)
+	farmIDs, err = farmIDsFromSearch(body)
 	if err != nil {
 		fmt.Printf("could not find farmIDs: %s\n", err)
-		return
+		return farmIDs, err
 	}
 
+	var zids []redis.Z
 	for _, farmID := range farmIDs {
-		fmt.Printf("queueing farmID [%s] [%d]", farmID, len(queue))
-		queue <- farmID
-		fmt.Printf("queued farmID [%s] [%d]", farmID, len(queue))
+
+		idScore, err := idToNum(farmID)
+		if err != nil {
+			fmt.Printf("cannot convert id? [%s] [%v]", farmID, err)
+			continue
+		}
+		zid := redis.Z{Score: float64(idScore), Member: farmID}
+		zids = append(zids, zid)
 	}
+
+	if len(zids) == 0 {
+		fmt.Printf("no farms found!\n")
+		return farmIDs, err
+	}
+
+	result, err := redisdb.ZAddNX("spidered", zids...).Result()
+	if err != nil {
+		log.Warnf("could not add farmIDs to redis [spidered]: %v", err)
+	}
+	fmt.Printf("zadd: [%v] [%v]\n", result, err)
+	// TODO when result == 0, no new items were added. Stop spidering...
+
+	return farmIDs, nil
 }
 
-func fetchMany(queue chan string) {
+type zAddNXer interface {
+	ZAddNX(key string, members ...redis.Z) *redis.IntCmd
+	PoolStats() *redis.PoolStats
+}
+
+func fetchMany(queue chan string, redisdb zAddNXer) {
 	body, err := fetchURL("https://upload.farm/all?p=4695&sort=recent")
 	if err != nil {
 		return
@@ -329,16 +408,27 @@ func fetchMany(queue chan string) {
 		return
 	}
 
+	var zids []redis.Z
+
 	for _, farmID := range farmIDs {
 		log.Debugf("queueing farmID [%s] [%d]", farmID, len(queue))
 		queue <- farmID
 		log.Debugf("queued farmID [%s] [%d]", farmID, len(queue))
-		_, err := idToNum(farmID)
+		idScore, err := idToNum(farmID)
 		if err != nil {
 			fmt.Printf("cannot convert id? [%s] [%v]", farmID, err)
 			continue
 		}
+		zid := redis.Z{Score: float64(idScore), Member: farmID}
+		zids = append(zids, zid)
 	}
+	if len(zids) == 0 {
+		fmt.Printf("no farms found!\n")
+		return
+	}
+	result, err := redisdb.ZAddNX("spidered", zids...).Result()
+	fmt.Printf("zadd: [%v] [%v]\n", result, err)
+	// fmt.Printf("%#v", redisdb.PoolStats())
 }
 
 func farmIDsFromSearch(body []byte) ([]string, error) {
@@ -382,7 +472,7 @@ func extractFarmIDs(body []byte) ([]string, error) {
 
 func fetchURL(url string) ([]byte, error) {
 	startTime := time.Now()
-	res, err := http.Get(url)
+	res, err := httpClient.Get(url)
 	dur := time.Since(startTime)
 	log.Infof("fetched %s in %v", url, dur)
 	if err != nil {
