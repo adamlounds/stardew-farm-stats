@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"reflect"
 	"regexp"
@@ -137,7 +138,17 @@ func main() {
 		}
 	}()
 
-	select {}
+	// TODO: graceful shutdown via context.withTimeout?
+	// err := http.Shutdown(ctx) (returns err if context expires)
+	// grpc.Server.GracefulStop() (blocks until complete)
+	// telnet err := tcp_server.Conn.Close()
+
+	// wait for ctrl-c (sigkill)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
+	log.Infof("Shutting down\n")
+	os.Exit(0)
 
 }
 
