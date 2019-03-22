@@ -58,8 +58,14 @@ type farmStats struct {
 	mu    sync.Mutex
 	stats map[string]svStats
 }
+type spiderStatus struct {
+	mu         sync.Mutex
+	stop       bool
+	numRunning int
+}
 
 var allFarms farmStats
+var status spiderStatus
 
 var serverCtx context.Context
 var chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -241,11 +247,14 @@ func telnetServer(telnetPort string, queue chan string, redisdb *redis.Client) {
 				c.Send("usage:\n" +
 					"1F4Tjc - fetch farm 1F4Tjc if it's a valid id\n" +
 					"/ping - check connection, returns 'pong'\n" +
-					"/qsize - query size of queue\n" +
+					"/qsize - size of farm-fetching queue\n" +
 					"/show - show current stats\n" +
+					"/spiderstatus - show number of running spiders\n" +
 					"/fetch - fetch latest farm list and process new ones\n" +
 					"/spider - grab latest farms and add to queue\n" +
 					"/spider 3 - grab page 3 of historical farms and add to queue\n" +
+					"/spiderall 3 - grab from page 3 to 1 of historical farms & add to known farms list in redis\n" +
+					"/stopspider - tell \"spiderall\" spiders to stop\n" +
 					"/quit - terminate connection\n")
 			case message == "/fetch":
 				fetchRecents(queue)
@@ -261,11 +270,24 @@ func telnetServer(telnetPort string, queue chan string, redisdb *redis.Client) {
 					c.Send(fmt.Sprintf("%s likes Abigail %d/10\n", stats.FarmID, stats.Abigail))
 				}
 				allFarms.mu.Unlock()
+			case message == "/spiderstatus":
+				status.mu.Lock()
+				numSpiders := status.numRunning
+				status.mu.Unlock()
+
+				c.Send(fmt.Sprintf("status: %d spiders running\n", numSpiders))
+			case message == "/stopspider":
+				status.mu.Lock()
+				numSpiders := status.numRunning
+				status.stop = true
+				status.mu.Unlock()
+
+				c.Send(fmt.Sprintf("asked %d spiders to stop\n", numSpiders))
 			case message == "/spider":
 				go func() {
 					fetchMany(queue, redisdb)
 				}()
-				c.Send("simple spider\n")
+				c.Send("simple spider of homepage farms\n")
 			case strings.HasPrefix(message, "/spiderall "):
 				pageNum, err := strconv.Atoi(strings.TrimPrefix(message, "/spiderall "))
 				if err != nil {
@@ -275,15 +297,36 @@ func telnetServer(telnetPort string, queue chan string, redisdb *redis.Client) {
 
 				c.Send(fmt.Sprintf("spidering from page %d", pageNum))
 				go func() {
+					status.mu.Lock()
+					status.numRunning++
+					status.mu.Unlock()
+
 					var seenIDs []string
+					var seenPages int
 					for i := pageNum; i >= 0; i-- {
+						status.mu.Lock()
+						shouldStop := status.stop
+						status.mu.Unlock()
+
+						if shouldStop == true {
+							log.Info("received stop signal!")
+							break
+						}
 						idsFromPage, err := fetchPage(redisdb, i)
 						if err != nil {
 							continue
 						}
 						seenIDs = append(seenIDs, idsFromPage...)
+						seenPages++
 					}
-					log.Infof("finished reading pages, saw %v", seenIDs)
+					status.mu.Lock()
+					status.numRunning--
+					if status.numRunning == 0 {
+						status.stop = false
+					}
+					status.mu.Unlock()
+
+					log.Infof("finished reading pages, saw %d farms on %d pages", len(seenIDs), seenPages)
 				}()
 				c.Send("multipage spider\n")
 			case strings.HasPrefix(message, "/spider "):
@@ -355,12 +398,14 @@ func fetchPage(redisdb zAddNXer, pageNum int) ([]string, error) {
 
 	body, err := fetchURL(u.String())
 	if err != nil {
+		log.Warnf("[%d] could not fetchURL: %s\n", pageNum, err)
 		return farmIDs, err
 	}
 
 	farmIDs, err = farmIDsFromSearch(body)
 	if err != nil {
-		fmt.Printf("could not find farmIDs: %s\n", err)
+		log.Warnf("[%d] could not find farmIDs: %s\n", pageNum, err)
+		log.Debugf("[%d] %s", pageNum, body)
 		return farmIDs, err
 	}
 
@@ -435,6 +480,7 @@ func farmIDsFromSearch(body []byte) ([]string, error) {
 	re := regexp.MustCompile("/([A-Za-z0-9]{6})-f.png")
 	result := re.FindAllStringSubmatch(string(body), -1)
 	if result == nil {
+		log.Warnf("could not find any farms in %s", body)
 		return nil, fmt.Errorf("no farms found")
 	}
 
@@ -444,6 +490,10 @@ func farmIDsFromSearch(body []byte) ([]string, error) {
 		farmIDs = append(farmIDs, farmID)
 	}
 
+	if len(farmIDs) == 0 {
+		log.Warnf("could not find any farms in %s", body)
+		return nil, fmt.Errorf("no farms in body?")
+	}
 	return farmIDs, nil
 }
 
@@ -485,7 +535,11 @@ func fetchURL(url string) ([]byte, error) {
 		return nil, err
 	}
 
-	return body, nil
+	if res.StatusCode == http.StatusOK {
+		return body, nil
+	}
+	return nil, fmt.Errorf(res.Status)
+
 }
 
 func processFarmID(farmID string, statsQueue chan svStats) {
