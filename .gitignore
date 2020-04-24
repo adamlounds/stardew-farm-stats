@@ -19,5 +19,5 @@
 # goland
 .idea/
 
-# omit dependencies from our repo
-vendor/
+# linter
+bin/
