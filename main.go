@@ -22,7 +22,7 @@ import (
 	"github.com/firstrow/tcp_server"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/go-chi/chi/render"
+	"github.com/go-chi/render"
 	"github.com/go-redis/redis"
 	resque "github.com/kavu/go-resque"
 	log "github.com/sirupsen/logrus"

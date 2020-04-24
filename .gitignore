@@ -16,5 +16,8 @@
 # vim
 .*.sw[a-z]
 
+# goland
+.idea/
+
 # omit dependencies from our repo
 vendor/
